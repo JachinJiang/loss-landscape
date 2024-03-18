@@ -18,7 +18,7 @@ def get_weights(net):
     return [p.data for p in net.parameters()]
 
 
-def set_weights(net, weights, directions=None, step=None):
+def set_weights(net, weights, directions=None, step=None, args=None):
     """
         Overwrite the network's weights with a specified list of tensors
         or change weights along directions with a step size.
@@ -29,7 +29,7 @@ def set_weights(net, weights, directions=None, step=None):
             p.data.copy_(w.type(type(p.data)))
     else:
         assert step is not None, 'If a direction is specified then step must be specified as well'
-
+        
         if len(directions) == 2:
             dx = directions[0]
             dy = directions[1]
@@ -37,8 +37,17 @@ def set_weights(net, weights, directions=None, step=None):
         else:
             changes = [d*step for d in directions[0]]
 
-        for (p, w, d) in zip(net.parameters(), weights, changes):
-            p.data = w + torch.Tensor(d).type(type(w))
+        if args.disturb_s:
+            for ((name, p), w, d) in zip(net.named_parameters(), weights, changes):
+                if ".s" in name:
+                    p.data = w + torch.Tensor(d).type(type(w))
+                else:
+                    continue
+        else:
+            for ((name, p), w, d) in zip(net.named_parameters(), weights, changes):
+                if ".s" in name:
+                    continue
+                p.data = w + torch.Tensor(d).type(type(w))
 
 
 def set_states(net, states, directions=None, step=None):
@@ -271,7 +280,7 @@ def setup_direction(args, dir_file, net):
 
 def name_direction_file(args):
     """ Name the direction file that stores the random directions. """
-
+    
     if args.dir_file:
         assert exists(args.dir_file), "%s does not exist!" % args.dir_file
         return args.dir_file
@@ -296,6 +305,12 @@ def name_direction_file(args):
     else:
         dir_file += file1
 
+    if args.val == True:
+        dir_file += "val"
+    else:
+        dir_file += "target"
+    if args.disturb_s == True:
+        dir_file += "disturb_s"
     dir_file += '_' + args.dir_type
     if args.xignore:
         dir_file += '_xignore=' + args.xignore

@@ -38,10 +38,10 @@ def name_surface_file(args, dir_file):
         surf_file += 'x[%s,%s,%d]' % (str(args.ymin), str(args.ymax), int(args.ynum))
 
     # dataloder parameters
-    if args.raw_data: # without data normalization
-        surf_file += '_rawdata'
-    if args.data_split > 1:
-        surf_file += '_datasplit=' + str(args.data_split) + '_splitidx=' + str(args.split_idx)
+    # if args.raw_data: # without data normalization
+    #     surf_file += '_rawdata'
+    # if args.data_split > 1:
+    #     surf_file += '_datasplit=' + str(args.data_split) + '_splitidx=' + str(args.split_idx)
 
     return surf_file + ".h5"
 
@@ -54,14 +54,15 @@ def setup_surface_file(args, surf_file, dir_file):
             f.close()
             print ("%s is already set up" % surf_file)
             return
-
+    print("---")
     f = h5py.File(surf_file, 'a')
     f['dir_file'] = dir_file
-
+    
     # Create the coordinates(resolutions) at which the function is evaluated
     xcoordinates = np.linspace(args.xmin, args.xmax, num=args.xnum)
     f['xcoordinates'] = xcoordinates
-
+    
+    
     if args.y:
         ycoordinates = np.linspace(args.ymin, args.ymax, num=args.ynum)
         f['ycoordinates'] = ycoordinates
@@ -112,7 +113,7 @@ def crunch(surf_file, net, w, s, d, dataloader, loss_key, acc_key, comm, rank, a
 
         # Load the weights corresponding to those coordinates into the net
         if args.dir_type == 'weights':
-            net_plotter.set_weights(net.module if args.ngpu > 1 else net, w, d, coord)
+            net_plotter.set_weights(net.module if args.ngpu > 1 else net, w, d, coord, args)
         elif args.dir_type == 'states':
             net_plotter.set_states(net.module if args.ngpu > 1 else net, s, d, coord)
 
@@ -153,25 +154,86 @@ def crunch(surf_file, net, w, s, d, dataloader, loss_key, acc_key, comm, rank, a
 
     f.close()
 
+
+def get_args():
+    parser.add_argument('--classifier', type=str,
+                        default="linear", choices=["linear", "wn"])
+    parser.add_argument('--dataset', type=str, default='PACS')
+    parser.add_argument('--data_dir', type=str, default='/home/data/OOD_dataset/PACS/', help='data dir')
+    parser.add_argument('--N_WORKERS', type=int, default=8)
+    parser.add_argument('--split_style', type=str, default='strat',
+                        help="the style to split the train and eval datasets")
+    parser.add_argument('--task', type=str, default="img_dg",
+                        choices=["img_dg"], help='now only support image tasks')
+    parser.add_argument('--test_envs', type=int, nargs='+',
+                        default=[1], help='target domains')
+    parser.add_argument('--config_path', type=str, default="/home/jcjiang/loss-landscape/config2.yaml")
+    parser.add_argument('--use_qat', action='store_true')
+    parser.add_argument('--net', type=str, default='resnet50',
+                        help="featurizer: vgg16, resnet50, resnet101,DTNBase")
+    parser.add_argument('--seed', default=0, type=int, help='seed')
+    args = parser.parse_args()
+    args.steps_per_epoch = 100
+    # args.data_dir = args.data_file+args.data_dir
+    # os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
+    import util
+    if args.use_qat:
+        new_args = util.get_config2(args.config_path)
+        args.bit = new_args.quan.act.bit
+    #     out_dir = f"{args.algorithm}_bit{args.bit}"
+    # else:
+    #     out_dir = f"{args.algorithm}"
+    # # 获取当前时间
+    # current_time = datetime.datetime.now()
+
+    # # 将时间格式化为字符串
+    # time_string = current_time.strftime("%Y-%m-%d_%H-%M-%S")
+    # print(args.output)
+    # global output_dir
+    # output_dir = os.path.join(args.output,out_dir)
+    # print(output_dir)
+    # output_dir = os.path.join(output_dir,time_string)
+    # os.makedirs(output_dir, exist_ok=True)
+    # os.makedirs(out_dir, exist_ok=True)
+    
+
+
+    # # 文件名
+    # out_filename = f"out.txt"
+    # err_filename = f"err.txt"
+    # sys.stdout = Tee(os.path.join(output_dir, out_filename))
+    # sys.stderr = Tee(os.path.join(output_dir, err_filename))
+    from utils.util import set_random_seed, save_checkpoint, print_args, train_valid_target_eval_names, alg_loss_dict, Tee, img_param_init, print_environ
+    args = img_param_init(args)
+    # args.output = output_dir
+    print_environ()
+    return args
+
+
+
 ###############################################################
 #                          MAIN
 ###############################################################
 if __name__ == '__main__':
+    
     parser = argparse.ArgumentParser(description='plotting loss surface')
     parser.add_argument('--mpi', '-m', action='store_true', help='use mpi')
+    parser.add_argument('--val', action='store_true')
+    parser.add_argument('--disturb_s', action='store_true')
     parser.add_argument('--cuda', '-c', action='store_true', help='use cuda')
     parser.add_argument('--threads', default=2, type=int, help='number of threads')
     parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use for each rank, useful for data parallel evaluation')
-    parser.add_argument('--batch_size', default=128, type=int, help='minibatch size')
+    
+    parser.add_argument('--batch_size', default=64, type=int, help='minibatch size')
 
     # data parameters
-    parser.add_argument('--dataset', default='cifar10', help='cifar10 | imagenet')
-    parser.add_argument('--datapath', default='cifar10/data', metavar='DIR', help='path to the dataset')
-    parser.add_argument('--raw_data', action='store_true', default=False, help='no data preprocessing')
-    parser.add_argument('--data_split', default=1, type=int, help='the number of splits for the dataloader')
-    parser.add_argument('--split_idx', default=0, type=int, help='the index of data splits for the dataloader')
-    parser.add_argument('--trainloader', default='', help='path to the dataloader with random labels')
-    parser.add_argument('--testloader', default='', help='path to the testloader with random labels')
+    # parser.add_argument('--dataset', default='pacs', help='cifar10 | imagenet')
+    # parser.add_argument('--datapath', default='cifar10/data', metavar='DIR', help='path to the dataset')
+    # parser.add_argument('--raw_data', action='store_true', default=False, help='no data preprocessing')
+    # parser.add_argument('--data_split', default=1, type=int, help='the number of splits for the dataloader')
+    # parser.add_argument('--split_idx', default=0, type=int, help='the index of data splits for the dataloader')
+    # parser.add_argument('--trainloader', default='', help='path to the dataloader with random labels')
+    # parser.add_argument('--testloader', default='', help='path to the testloader with random labels')
 
     # model parameters
     parser.add_argument('--model', default='resnet56', help='model name')
@@ -203,10 +265,10 @@ if __name__ == '__main__':
     parser.add_argument('--show', action='store_true', default=False, help='show plotted figures')
     parser.add_argument('--log', action='store_true', default=False, help='use log scale for loss values')
     parser.add_argument('--plot', action='store_true', default=False, help='plot figures after computation')
+    args = get_args()
+    # args = parser.parse_args()
 
-    args = parser.parse_args()
-
-    torch.manual_seed(123)
+    torch.manual_seed(0)
     #--------------------------------------------------------------------------
     # Environment setup
     #--------------------------------------------------------------------------
@@ -221,7 +283,8 @@ if __name__ == '__main__':
         if not torch.cuda.is_available():
             raise Exception('User selected cuda option, but cuda is not available on this machine')
         gpu_count = torch.cuda.device_count()
-        torch.cuda.set_device(rank % gpu_count)
+        # torch.cuda.set_device(rank % gpu_count)
+        torch.cuda.set_device(1 % gpu_count)
         print('Rank %d use GPU %d of %d GPUs on %s' %
               (rank, torch.cuda.current_device(), gpu_count, socket.gethostname()))
 
@@ -231,8 +294,11 @@ if __name__ == '__main__':
     try:
         args.xmin, args.xmax, args.xnum = [float(a) for a in args.x.split(':')]
         args.ymin, args.ymax, args.ynum = (None, None, None)
+        args.xnum = int(args.xnum)
+        
         if args.y:
             args.ymin, args.ymax, args.ynum = [float(a) for a in args.y.split(':')]
+            args.ynum = int(args.ynum)
             assert args.ymin and args.ymax and args.ynum, \
             'You specified some arguments for the y axis, but not all'
     except:
@@ -241,7 +307,34 @@ if __name__ == '__main__':
     #--------------------------------------------------------------------------
     # Load models and extract parameters
     #--------------------------------------------------------------------------
-    net = model_loader.load(args.dataset, args.model, args.model_file)
+    from alg.algs.ERM import ERM
+    net = ERM(args).network
+    # print(net)
+    store_model_dict = torch.load(args.model_file)
+    store_model_dict = store_model_dict['model_dict']
+    # print(store_model_dict)
+    model_dict = net.state_dict()
+    # for key, value in store_model_dict.items():
+    #     new_key = key.replace('featurizer.', '')
+    #     new_dict[new_key] = value
+    
+    # for key, value in model_dict.items():
+    #     new_key = key.replace('featurizer.', '')
+    #     new_dict[new_key] = value
+
+    cnt0 = 0
+    cnt1 = 0
+    for key in model_dict.keys():
+        new_key = "network." + key
+        cnt0 += 1
+        if new_key in store_model_dict:
+            model_dict[key] = store_model_dict[new_key]
+            # print(new_key, store_model_dict[new_key])
+            cnt1+=1
+    print(cnt0, cnt1)
+    net.load_state_dict(model_dict)
+    
+    # net = model_loader.load(args.dataset, args.model, args.model_file)
     w = net_plotter.get_weights(net) # initial parameters
     s = copy.deepcopy(net.state_dict()) # deepcopy since state_dict are references
     if args.ngpu > 1:
@@ -278,16 +371,21 @@ if __name__ == '__main__':
 
     mpi.barrier(comm)
 
-    trainloader, testloader = dataloader.load_dataset(args.dataset, args.datapath,
-                                args.batch_size, args.threads, args.raw_data,
-                                args.data_split, args.split_idx,
-                                args.trainloader, args.testloader)
+    from datautil.getdataloader import get_img_dataloader
+    train_loaders, eval_loaders, target_loaders = get_img_dataloader(args)
+    # trainloader, testloader = dataloader.load_dataset(args.dataset, args.datapath,
+    #                             args.batch_size, args.threads, args.raw_data,
+    #                             args.data_split, args.split_idx,
+    #                             args.trainloader, args.testloader)
 
     #--------------------------------------------------------------------------
     # Start the computation
     #--------------------------------------------------------------------------
-    crunch(surf_file, net, w, s, d, trainloader, 'train_loss', 'train_acc', comm, rank, args)
-    # crunch(surf_file, net, w, s, d, testloader, 'test_loss', 'test_acc', comm, rank, args)
+    # crunch(surf_file, net, w, s, d, trainloader, 'train_loss', 'train_acc', comm, rank, args)
+    if args.val:
+        crunch(surf_file, net, w, s, d, eval_loaders, 'test_loss', 'test_acc', comm, rank, args)
+    else:
+        crunch(surf_file, net, w, s, d, target_loaders, 'test_loss', 'test_acc', comm, rank, args)
 
     #--------------------------------------------------------------------------
     # Plot figures

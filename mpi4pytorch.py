@@ -67,7 +67,7 @@ def reduce_max(comm, array, display_info=False):
         return array
     array = np.asarray(array, dtype='d')
     total = np.zeros_like(array)
-    float_min = np.finfo(np.float).min
+    float_min = np.finfo(float).min
     total.fill(float_min)
 
     if display_info:
